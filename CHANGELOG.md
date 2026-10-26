@@ -2,6 +2,12 @@
 
 ## 0.2.0 (2026-10-26)
 
+Fix from the third review:
+
+- A missing transcript no longer means "new session": a new session is registered by the `SessionStart(startup|clear)`
+  hook `session_start.py`; otherwise a missing transcript gives `?`.
+- README Limitations: transcript lag, and where automation ends and the human begins.
+
 Fixes from the second review:
 
 - Before compaction (PreCompact, `relocate.py --transcript`) there is no 180-second grace: every unrecorded message

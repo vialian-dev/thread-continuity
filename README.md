@@ -33,6 +33,7 @@ every message   guard.py (UserPromptSubmit hook): one advisory line: ok / FIX / 
 | `tools/continuity/snapshot.py` | `PreCompact` hook. Runs the readiness and decisions checks, writes the snapshot to `.continuity/` with any problems found. Never blocks automatic compaction; can block a manual `/compact` when `CONTINUITY_BLOCK_MANUAL=1`. |
 | `tools/continuity/relocate.py` | The same checks by hand, with a READY / NOT READY verdict and the list of what was checked. |
 | `tools/continuity/first_prompt.py` | `SessionStart(compact)` hook. Inserts the first prompt; refuses to present a stale snapshot as current. |
+| `tools/continuity/session_start.py` | `SessionStart(startup, clear)` hook. Registers that a session started fresh, so the guard never infers "new session" from a missing transcript. |
 | `tools/continuity/ack.py` | `ack.py <token>`: the thread presents the token from its first prompt; changes exactly one session record. |
 | `tools/continuity/guard.py` | `UserPromptSubmit` hook. Advisory line: first prompt acknowledged (A), user messages recorded (D), secret-like values in docs (S). |
 | `templates/docs/*.md` | The files the thread keeps: `STATE.md` (goal and first action), `DECISIONS.md`, `PROGRESS.md`, `BACKLOG.md`, `LESSONS.md`. |
@@ -111,6 +112,14 @@ CONTINUITY GUARD 2026-10-26 13:15Z: A ? (no session id in hook input; 0 pending 
 - `ack.py` proves the **token was presented**, not that the prompt was read or understood. The token is printed
   in the first prompt and also stored in that session's record under `.continuity/sessions/`. Each session and
   each restore gets its own token, so one acknowledgement changes one record.
+- The transcript can lag behind the conversation (Claude Code writes it asynchronously). A message typed
+  just before compaction may not be in the file yet when the PreCompact check reads it, and then it is not
+  counted. An unterminated last line is ignored for the same reason. A missing transcript is reported as `?`,
+  except during the first minutes of a session registered by `session_start.py`.
+- Nothing in the protocol requires a human review. Automated: the checks, the snapshot, inserting the first prompt,
+  the guard line. The assistant: keeping the files and acknowledging the prompt. The human: making the decisions
+  and seeing the guard line. Whether the restored thread actually does the first action is not checked; in our
+  live test the model acknowledged the prompt and then chose a different next step.
 - The transcript format (`*.jsonl`, `compact_boundary` entries) is what Claude Code writes today; it is not a
   documented API and may change. The guard then reports `?` rather than `ok`.
 - Secret detection catches common token formats (OpenAI/Anthropic-style `sk-`, GitHub, Slack, AWS keys, private

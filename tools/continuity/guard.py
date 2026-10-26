@@ -21,7 +21,30 @@ from common import SESSIONS, project_root, read_hook_input, session_file, stamp,
 import decisions  # noqa: E402
 
 
-def check_ack(root, session_id, transcript):
+NEW_SESSION_S = 600
+
+
+def load_record(root, session_id):
+    """(record, problem): record is None when absent; problem names why it cannot be used."""
+    f = session_file(root, session_id)
+    try:
+        rec = json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        return None, f"session record unreadable: {type(e).__name__}"
+    if rec is not None and not (isinstance(rec, dict) and isinstance(rec.get("pending"), bool)):
+        return None, "session record malformed"
+    return rec, None
+
+
+def fresh_start(rec, now):
+    """True when session_start.py registered this session as new within NEW_SESSION_S and it was never restored."""
+    if not rec or rec.get("since") or rec.get("source") not in ("startup", "clear"):
+        return False
+    started = decisions.parse_ts(rec.get("started"))
+    return started is not None and 0 <= (now - started).total_seconds() < NEW_SESSION_S
+
+
+def check_ack(root, session_id, transcript, now):
     if not session_id:
         try:
             pending = sum(1 for f in (state_dir(root) / SESSIONS).glob("*.json")
@@ -29,24 +52,20 @@ def check_ack(root, session_id, transcript):
         except (OSError, ValueError, AttributeError):
             return "A ? (no session id; session records unreadable)"
         return f"A ? (no session id in hook input; {pending} pending in project)"
-    f = session_file(root, session_id)
-    try:
-        rec = json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
-    except (OSError, ValueError, UnicodeDecodeError) as e:
-        return f"A ? (session record unreadable: {type(e).__name__})"
-    if rec is not None and not (isinstance(rec, dict) and isinstance(rec.get("pending"), bool)):
-        return "A ? (session record malformed)"
+    rec, problem = load_record(root, session_id)
+    if problem:
+        return f"A ? ({problem})"
     if rec and rec["pending"]:
         return ("A FIX FIRST: first prompt after compaction not acknowledged; read it, then run "
                 "python tools/continuity/ack.py <token from the prompt>")
-    if transcript and not Path(str(transcript)).is_file() and rec is None:
-        return "A ok (new session: no transcript yet, so no compaction yet)"
     if not (transcript and Path(str(transcript)).is_file()):
+        if fresh_start(rec, now):
+            return "A ok (new session registered at start; no compaction yet)"
         if rec is None:
-            return "A ? (no session record and no transcript: cannot rule out an unacknowledged compaction)"
+            return "A ? (transcript unavailable and no session record: cannot rule out an unacknowledged compaction)"
         return "A ok"
     try:
-        compacted = decisions.last_compaction(transcript, utc_now() - dt.timedelta(hours=decisions.WINDOW_H))
+        compacted = decisions.last_compaction(transcript, now - dt.timedelta(hours=decisions.WINDOW_H))
     except OSError:
         return "A ? (transcript unreadable)"
     if compacted:
@@ -56,15 +75,17 @@ def check_ack(root, session_id, transcript):
     return "A ok"
 
 
-def check_decisions(root, transcript, now):
+def check_decisions(root, session_id, transcript, now):
     r = decisions.check(root, transcript, now)
     note = f"; ? {r['reason']}" if r["reason"] and r["status"] == "fix" else ""
     if r["status"] == "fix":
         return f"D FIX: {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md{note}"
     if r["status"] == "unknown":
+        if r.get("file_missing") and session_id and fresh_start(load_record(root, session_id)[0], now):
+            return "D nothing to check (new session; transcript not written yet)"
         return f"D ? ({r['reason']})"
     if r["status"] == "nothing":
-        return f"D nothing to check ({r['reason'] or f'no user messages in the last {decisions.WINDOW_H} h'})"
+        return f"D nothing to check (no user messages in the last {decisions.WINDOW_H} h)"
     extra = "; record the new user message now" if r["fresh"] else ""
     return f"D ok ({r['checked']} checked){extra}"
 
@@ -75,8 +96,8 @@ def main():
     now = utc_now()
     transcript = hook.get("transcript_path")
     parts = []
-    for name, fn in (("A", lambda: check_ack(root, hook.get("session_id"), transcript)),
-                     ("D", lambda: check_decisions(root, transcript, now))):
+    for name, fn in (("A", lambda: check_ack(root, hook.get("session_id"), transcript, now)),
+                     ("D", lambda: check_decisions(root, hook.get("session_id"), transcript, now))):
         try:
             parts.append(fn())
         except Exception as e:  # noqa: BLE001: an advisory hook reports, it does not crash

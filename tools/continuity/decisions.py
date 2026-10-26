@@ -195,10 +195,9 @@ def check(root, transcript, now, grace=True):
         res["reason"] = "no transcript path in hook input"
         return res
     if not Path(str(transcript)).is_file():
-        # The first message of a new session arrives before Claude Code has written the transcript file.
-        res["reason"] = "transcript not written yet (new session)"
-        if grace:
-            res["status"] = "nothing"
+        # Missing is not proof of a new session (the guard decides that from a registered session start).
+        res["reason"] = "transcript file not available"
+        res["file_missing"] = True
         return res
     try:
         log = (Path(root) / "docs/DECISIONS.md").read_text(encoding="utf-8")

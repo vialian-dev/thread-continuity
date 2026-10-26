@@ -328,7 +328,7 @@ def test_fresh_unrecorded_message_blocks_readiness_before_compaction(ready, tmp_
 
 def test_no_record_and_no_transcript_is_unknown(ready, tmp_path):
     """Review 2, R2-5: session id present, no record, no transcript -> A ok."""
-    assert "A ? (no session record and no transcript" in guard(ready, session_id="S9")
+    assert "A ? (transcript unavailable and no session record" in guard(ready, session_id="S9")
     t = transcript(tmp_path / "s.jsonl", [])
     assert "A ok" in guard(ready, session_id="S9", transcript_path=str(t))  # transcript shows no compaction
     (ready / ".continuity" / "sessions").mkdir(parents=True)
@@ -408,7 +408,30 @@ def test_tools_inside_the_project_do_not_dirty_git(ready):
 def test_first_message_of_new_session_is_not_unknown(ready, tmp_path):
     """Found in the live test: the transcript file does not exist yet on a new session's first message."""
     missing = tmp_path / "not-yet-written.jsonl"
+    run("session_start.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "NEW", "source": "startup"}))
     out = guard(ready, session_id="NEW", transcript_path=str(missing))
-    assert "A ok (new session" in out and "D nothing to check (transcript not written yet" in out
+    assert "A ok (new session registered at start" in out
+    assert "D nothing to check (new session; transcript not written yet)" in out
     r = run("relocate.py", ready, args=["--transcript", str(missing)])
-    assert r.returncode == 1 and "could not check decisions: transcript not written yet" in r.stdout
+    assert r.returncode == 1 and "could not check decisions: transcript file not available" in r.stdout
+
+
+def test_missing_transcript_does_not_reclassify_existing_session_as_new(ready, tmp_path):
+    """Review 3: deleting the transcript of a compacted session turned A ? / D FIX into A ok / D nothing."""
+    boundary = json.dumps({"type": "system", "subtype": "compact_boundary",
+                           "timestamp": (dt.datetime.now(UTC) - dt.timedelta(minutes=20)).isoformat()})
+    t = transcript(tmp_path / "s.jsonl", [(30, "An instruction that was never recorded anywhere")],
+                   extra_lines=[boundary])
+    before = guard(ready, session_id="OLD", transcript_path=str(t))
+    assert "A ? (compaction at" in before and "D FIX: 1" in before
+    t.unlink()
+    after = guard(ready, session_id="OLD", transcript_path=str(t))
+    assert "A ? (transcript unavailable and no session record" in after
+    assert "D ? (transcript file not available)" in after
+
+
+def test_session_start_does_not_overwrite_a_pending_record(ready):
+    precompact(ready, "S1")
+    restore(ready, "S1")
+    run("session_start.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "S1", "source": "clear"}))
+    assert "A FIX FIRST" in guard(ready, session_id="S1")
