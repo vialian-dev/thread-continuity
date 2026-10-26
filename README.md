@@ -41,7 +41,8 @@ every message   guard.py (UserPromptSubmit hook): one advisory line: ok / FIX / 
 | `.claude/settings.example.json` | Hook configuration. |
 
 Python 3.9+, standard library only. The CI workflow is configured to run the tests on Linux, Windows and macOS with
-Python 3.9 and 3.13.
+Python 3.9 and 3.13. For v0.2.0, Linux and Windows passed on both versions; the macOS jobs had not been
+assigned a runner by release time, so macOS is not yet verified.
 
 ## Installation
 
