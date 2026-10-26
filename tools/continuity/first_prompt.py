@@ -23,7 +23,7 @@ HEADER = (
 def main():
     try:
         sys.stdin.read()
-    except Exception:  # noqa: BLE001 — hook input is informational here
+    except Exception:  # noqa: BLE001: hook input is informational here
         pass
     root = project_root()
     try:

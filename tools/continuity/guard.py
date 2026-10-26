@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit hook: one line per user message — is the thread's memory being kept right now?
+"""UserPromptSubmit hook: one line per user message: is the thread's memory being kept right now?
 
 Claude Code adds the stdout of a UserPromptSubmit hook to the context and passes the transcript path on stdin
 (https://code.claude.com/docs/en/hooks). The guard never blocks the prompt: always exit 0.
@@ -83,7 +83,7 @@ def main():
     now = utc_now()
     parts = []
     if pending_flag(root).exists():
-        parts.append("A FIX FIRST: first prompt after compaction not acknowledged — read FIRST_PROMPT.md, "
+        parts.append("A FIX FIRST: first prompt after compaction not acknowledged; read FIRST_PROMPT.md, "
                      "then run python tools/continuity/ack.py")
     else:
         parts.append("A ok")

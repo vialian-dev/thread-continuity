@@ -87,7 +87,7 @@ def main(argv=None):
     root = a.root or project_root()
     problems = checks(root)
     if problems:
-        print("NOT READY — fix, commit, push, run again:")
+        print("NOT READY. Fix, commit, push, run again:")
         for p in problems:
             print("  " + p)
         return 1

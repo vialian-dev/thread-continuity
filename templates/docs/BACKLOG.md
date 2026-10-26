@@ -1,3 +1,3 @@
 # Backlog
 
-- [ ] <item> — <why, who asked, date>
+- [ ] <item>: <why, who asked, date>
