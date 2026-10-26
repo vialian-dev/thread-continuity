@@ -497,9 +497,7 @@ def test_config_maps_an_existing_truth_set(ready, tmp_path):
     assert r.returncode == 0, r.stdout
     prompt = (ready / ".continuity" / "first_prompt.md").read_text(encoding="utf-8")
     assert f"00 {day} 12:00 ET unfreeze everything" in prompt and "01 then the prototype" in prompt
-    assert "
-x
-" not in prompt  # the section ends at the next heading of the same or higher level
+    assert "\nx\n" not in prompt  # the section ends at the next heading of the same or higher level
     assert "Read: compaction_onboarding.md, docs/MVP.md." in prompt
     t = transcript(tmp_path / "s.jsonl", [(30, "An instruction recorded in the project's own decisions file")])
     assert "D FIX: 1 user message(s) not recorded verbatim in docs/RESHENIYA.md" in guard(
