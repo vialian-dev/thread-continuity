@@ -27,7 +27,7 @@ def main():
     found = readiness.problems(root, os.environ.get("CONTINUITY_NO_REMOTE") == "1")
     r = decisions.check(root, hook.get("transcript_path"), utc_now(), grace=False)
     if r["status"] == "fix":
-        found.append(f"D  {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md")
+        found.append(f"D  {r['missing']} user message(s) not recorded verbatim in {r.get('file', 'the decisions file')}")
     elif r["status"] == "unknown":
         found.append(f"D  could not check decisions: {r['reason']}")
     if found and trigger == "manual" and os.environ.get("CONTINUITY_BLOCK_MANUAL") == "1":

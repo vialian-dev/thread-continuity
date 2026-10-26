@@ -103,8 +103,8 @@ def test_ready_needs_filled_templates_not_just_a_date(project):
     commit_all(project)
     r = run("relocate.py", project, args=["--no-remote"])
     assert r.returncode == 1
-    assert "'## Current goal' still contains a template placeholder" in r.stdout
-    assert "'## First action' still contains a template placeholder" in r.stdout
+    assert "'Current goal' still contains a template placeholder" in r.stdout
+    assert "'First action' still contains a template placeholder" in r.stdout
 
 
 def test_no_upstream_is_not_ready_unless_declared(project):
@@ -476,3 +476,44 @@ def test_acknowledged_session_with_vanished_transcript_is_unknown(ready):
     run("ack.py", ready, args=[restore(ready, "S1")])
     assert "A ok" in guard(ready, session_id="S1")
     assert "A ? (transcript unavailable" in guard(ready, session_id="S1", transcript_path=None)
+
+
+def test_config_maps_an_existing_truth_set(ready, tmp_path):
+    """continuity.json: a project keeps its own file names, heading text and date format (B-455)."""
+    day = dt.datetime.now(UTC).strftime("%d.%m")
+    (ready / "docs" / "MVP.md").write_text(
+        "# MVP\n\n### ТЕКУЩАЯ ЦЕЛЬ\nCOO prototype: 0 of 6 steps -> 6\n\n"
+        f"### ПЕРВОЕ ДЕЙСТВИЕ ТРЕДА consilium (night move)\n00 {day} 12:00 ET unfreeze everything\n"
+        "01 then the prototype\n\n## Other\nx\n", encoding="utf-8")
+    (ready / "docs" / "RESHENIYA.md").write_text("# Decisions\n", encoding="utf-8")
+    (ready / "continuity.json").write_text(json.dumps({
+        "truth_files": ["docs/MVP.md", "docs/RESHENIYA.md"], "state_file": "docs/MVP.md",
+        "decisions_file": "docs/RESHENIYA.md", "goal_section": "ТЕКУЩАЯ ЦЕЛЬ",
+        "first_action_section": "ПЕРВОЕ ДЕЙСТВИЕ ТРЕДА", "date_formats": ["%d.%m"],
+        "read_first": ["compaction_onboarding.md", "docs/MVP.md"]}, ensure_ascii=False), encoding="utf-8")
+    commit_all(ready)
+    git(ready, "push", "-q")
+    r = run("relocate.py", ready)
+    assert r.returncode == 0, r.stdout
+    prompt = (ready / ".continuity" / "first_prompt.md").read_text(encoding="utf-8")
+    assert f"00 {day} 12:00 ET unfreeze everything" in prompt and "01 then the prototype" in prompt
+    assert "
+x
+" not in prompt  # the section ends at the next heading of the same or higher level
+    assert "Read: compaction_onboarding.md, docs/MVP.md." in prompt
+    t = transcript(tmp_path / "s.jsonl", [(30, "An instruction recorded in the project's own decisions file")])
+    assert "D FIX: 1 user message(s) not recorded verbatim in docs/RESHENIYA.md" in guard(
+        ready, session_id="S", transcript_path=str(t))
+
+
+@pytest.mark.parametrize("content, reason", [
+    ("{not json", "is not valid JSON"),
+    ('{"state_flie": "docs/MVP.md"}', "unknown keys ['state_flie']"),
+    ('{"truth_files": "docs/MVP.md"}', "truth_files must be a list of strings"),
+])
+def test_bad_config_is_not_ready(ready, content, reason):
+    (ready / "continuity.json").write_text(content, encoding="utf-8")
+    commit_all(ready)
+    git(ready, "push", "-q")
+    r = run("relocate.py", ready)
+    assert r.returncode == 1 and reason in r.stdout

@@ -2,19 +2,22 @@
 
 Each check returns a problem line or nothing. What the checks prove is narrow and stated in README "Limitations":
 files exist and are filled in, the first action is dated today, git is committed and pushed.
-They cannot judge whether the content is correct or complete.
+They cannot judge whether the content is correct or complete. File and section names come from continuity.json.
 """
-import datetime as dt
 from pathlib import Path
 
-from common import PLACEHOLDER, STATE_DIR, TRUTH_FILES, git, read_text, section, utc_now
+from common import PLACEHOLDER, STATE_DIR, dated_today, git, load_config, read_text, section
 
-FILLED_SECTIONS = ("Current goal", "First action")
+
+def check_config(root):
+    _, err = load_config(root)
+    return [f"C  {err}"] if err else []
 
 
 def check_files(root):
+    cfg, _ = load_config(root)
     problems = []
-    for name in TRUTH_FILES:
+    for name in cfg["truth_files"]:
         text, err = read_text(Path(root) / name)
         if text is None:
             problems.append(f"T  {name} {err}")
@@ -23,21 +26,23 @@ def check_files(root):
     return problems
 
 
-def check_state(root, today=None):
-    text, _ = read_text(Path(root) / "docs/STATE.md")
+def check_state(root, days=None):
+    cfg, _ = load_config(root)
+    name = cfg["state_file"]
+    text, _ = read_text(Path(root) / name)
     if text is None:
-        return []  # reported by check_files
+        return [] if name in cfg["truth_files"] else [f"T  {name} not readable"]
     problems = []
-    days = today or {utc_now().date().isoformat(), dt.date.today().isoformat()}
-    for title in FILLED_SECTIONS:
+    for title in (cfg["goal_section"], cfg["first_action_section"]):
         body = section(text, title)
         if not body:
-            problems.append(f"S  docs/STATE.md has no '## {title}' section")
+            problems.append(f"S  {name} has no '{title}' section")
         elif PLACEHOLDER.search(body):
-            problems.append(f"S  '## {title}' still contains a template placeholder (<...> or YYYY-MM-DD)")
-    first = section(text, "First action")
-    if first and not any(first.splitlines()[0].startswith(d) for d in days):
-        problems.append("F  '## First action' is not dated today (its first line must start with YYYY-MM-DD)")
+            problems.append(f"S  '{title}' still contains a template placeholder (<...> or YYYY-MM-DD)")
+    first = section(text, cfg["first_action_section"])
+    if first and not dated_today(first.splitlines()[0], cfg["date_formats"], days):
+        problems.append(f"F  '{cfg['first_action_section']}' is not dated today (its first line must contain today's "
+                        f"date as {' or '.join(cfg['date_formats'])})")
     return problems
 
 
@@ -56,4 +61,4 @@ def check_git(root, no_remote=False):
 
 
 def problems(root, no_remote=False):
-    return check_files(root) + check_state(root) + check_git(root, no_remote)
+    return check_config(root) + check_files(root) + check_state(root) + check_git(root, no_remote)

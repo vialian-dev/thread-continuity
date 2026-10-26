@@ -9,13 +9,16 @@ import subprocess
 import sys
 from pathlib import Path
 
-TRUTH_FILES = (
-    "docs/STATE.md",
-    "docs/DECISIONS.md",
-    "docs/PROGRESS.md",
-    "docs/BACKLOG.md",
-    "docs/LESSONS.md",
-)
+CONFIG_FILE = "continuity.json"
+DEFAULTS = {
+    "truth_files": ["docs/STATE.md", "docs/DECISIONS.md", "docs/PROGRESS.md", "docs/BACKLOG.md", "docs/LESSONS.md"],
+    "state_file": "docs/STATE.md",
+    "decisions_file": "docs/DECISIONS.md",
+    "goal_section": "Current goal",
+    "first_action_section": "First action",
+    "date_formats": ["%Y-%m-%d"],
+    "read_first": ["docs/STATE.md", "docs/DECISIONS.md (newest entries)", "docs/PROGRESS.md"],
+}
 STATE_DIR = ".continuity"
 SNAPSHOT = "snapshot.json"
 PROMPT = "first_prompt.md"
@@ -79,17 +82,57 @@ def read_text(path):
         return None, type(e).__name__
 
 
+def load_config(root):
+    """(config, error): DEFAULTS overlaid with continuity.json from the project root, if present.
+
+    An unknown key or a value of the wrong type is an error, not a silent fallback: a typo would otherwise
+    point every check at the wrong file."""
+    cfg = {k: (list(v) if isinstance(v, list) else v) for k, v in DEFAULTS.items()}
+    text, err = read_text(Path(root) / CONFIG_FILE)
+    if text is None:
+        return cfg, None if err == "missing" else f"{CONFIG_FILE} not readable ({err})"
+    try:
+        loaded = json.loads(text)
+    except ValueError as e:
+        return cfg, f"{CONFIG_FILE} is not valid JSON ({e})"
+    if not isinstance(loaded, dict):
+        return cfg, f"{CONFIG_FILE} must be a JSON object"
+    unknown = sorted(set(loaded) - set(DEFAULTS))
+    if unknown:
+        return cfg, f"{CONFIG_FILE}: unknown keys {unknown}"
+    for k, v in loaded.items():
+        want = list if isinstance(DEFAULTS[k], list) else str
+        if not isinstance(v, want) or (want is list and not all(isinstance(x, str) for x in v)):
+            return cfg, f"{CONFIG_FILE}: {k} must be a {'list of strings' if want is list else 'string'}"
+        cfg[k] = v
+    return cfg, None
+
+
 def section(text, title):
-    """Body of a '## title' section (case-insensitive), up to the next '## ' heading; None when absent."""
-    m = re.search(r"^##\s+" + re.escape(title) + r"\s*$(.*?)(?=^##\s|\Z)", text or "", re.M | re.S | re.I)
-    return m.group(1).strip() if m else None
+    """Body of the first Markdown heading (any level 1-6) whose text starts with `title` (case-insensitive),
+    up to the next heading of the same or a higher level; None when absent."""
+    for m in re.finditer(r"^(#{1,6})[ \t]+(.+?)[ \t]*$", text or "", re.M):
+        if not m.group(2).lower().startswith(title.lower()):
+            continue
+        level = len(m.group(1))
+        rest = text[m.end():]
+        end = re.search(r"^#{1," + str(level) + r"}[ \t]", rest, re.M)
+        return (rest[:end.start()] if end else rest).strip()
+    return None
+
+
+def dated_today(line, formats, days=None):
+    """True when `line` contains today's date (UTC or local) in one of `formats`."""
+    days = days or {utc_now().date(), dt.date.today()}
+    return any(d.strftime(f) in line for d in days for f in formats)
 
 
 def fingerprint(root):
-    """What a snapshot is valid for: git head plus hashes of STATE.md and DECISIONS.md."""
+    """What a snapshot is valid for: git head plus hashes of the state file and the decisions file."""
     root = Path(root)
+    cfg, _ = load_config(root)
     fp = {"head": git(root, "rev-parse", "HEAD") or ""}
-    for key, name in (("state", "docs/STATE.md"), ("decisions", "docs/DECISIONS.md")):
+    for key, name in (("state", cfg["state_file"]), ("decisions", cfg["decisions_file"])):
         try:
             fp[key] = hashlib.sha256((root / name).read_bytes()).hexdigest()[:16]
         except OSError:
@@ -104,9 +147,11 @@ def snapshot_id(fp, created):
 def build_prompt(root, snap_id, problems):
     """First prompt text from the current STATE.md. The per-session acknowledgement line is appended by
     first_prompt.py, because one snapshot can be restored into several sessions."""
-    state, _ = read_text(Path(root) / "docs/STATE.md")
-    first = section(state, "First action") or "(no first action recorded)"
-    goal = section(state, "Current goal") or "(no current goal recorded)"
+    cfg, _ = load_config(root)
+    state, _ = read_text(Path(root) / cfg["state_file"])
+    first = section(state, cfg["first_action_section"]) or "(no first action recorded)"
+    goal = section(state, cfg["goal_section"]) or "(no current goal recorded)"
+    reading = ", ".join(cfg["read_first"])
     head = git(root, "log", "-1", "--format=%h %s") or "(no commits)"
     warn = ""
     if problems:
@@ -122,7 +167,7 @@ Snapshot {snap_id}, written {stamp()}, git head: {head}
 {goal}
 
 ## Before acting
-1. Read docs/STATE.md, the newest entries of docs/DECISIONS.md, and docs/PROGRESS.md.
+1. Read: {reading}.
 2. Run the acknowledgement command at the end of this prompt.
 3. Do not retell the old conversation and do not search for it: what is needed is in the files above.
 """

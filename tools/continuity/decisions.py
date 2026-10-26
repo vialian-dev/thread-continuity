@@ -199,10 +199,13 @@ def check(root, transcript, now, grace=True):
         res["reason"] = "transcript file not available"
         res["file_missing"] = True
         return res
+    from common import load_config
+    name = load_config(root)[0]["decisions_file"]
+    res["file"] = name
     try:
-        log = (Path(root) / "docs/DECISIONS.md").read_text(encoding="utf-8")
+        log = (Path(root) / name).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        res["reason"] = f"docs/DECISIONS.md not readable ({type(e).__name__})"
+        res["reason"] = f"{name} not readable ({type(e).__name__})"
         return res
     try:
         msgs, res["unreadable"] = user_messages(transcript, now - dt.timedelta(hours=WINDOW_H))

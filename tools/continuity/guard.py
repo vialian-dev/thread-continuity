@@ -79,7 +79,7 @@ def check_decisions(root, session_id, transcript, now):
     r = decisions.check(root, transcript, now)
     note = f"; ? {r['reason']}" if r["reason"] and r["status"] == "fix" else ""
     if r["status"] == "fix":
-        return f"D FIX: {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md{note}"
+        return f"D FIX: {r['missing']} user message(s) not recorded verbatim in {r.get('file', 'the decisions file')}{note}"
     if r["status"] == "unknown":
         if r.get("file_missing") and session_id and fresh_start(load_record(root, session_id)[0], now):
             return "D wait (session registered at start; transcript expected)"

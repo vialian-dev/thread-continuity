@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (2026-10-26)
+
+- `continuity.json`: map your own truth files, state and decisions files, section headings, date formats and the
+  reading list of the first prompt. Invalid configuration is a readiness problem (`C`), not a silent fallback.
+- Sections match any heading level by the start of the heading text.
+
 ## 0.2.0 (2026-10-26)
 
 Fix from the fourth review:

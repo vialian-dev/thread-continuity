@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # no __pycache__ in the project tree (it would make git "dirty")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (PROMPT, SNAPSHOT, fingerprint, new_token, project_root, read_hook_input, read_text,  # noqa: E402
-                    session_file, state_dir, utc_now, write_snapshot)
+from common import (PROMPT, SNAPSHOT, fingerprint, load_config, new_token, project_root, read_hook_input,  # noqa: E402
+                    read_text, session_file, state_dir, utc_now, write_snapshot)
 
 HEADER = "[thread-continuity: first prompt after compaction, inserted by the SessionStart(compact) hook]\n\n"
 
@@ -56,8 +56,9 @@ def main():
             warnings.append(f"state directory not writable ({type(e).__name__}); acknowledgement will not work")
             snap, prompt = None, None
     if prompt is None:
-        prompt = ("No first prompt could be prepared. Read docs/STATE.md ('## First action'), the newest entries of "
-                  "docs/DECISIONS.md and docs/PROGRESS.md before acting.\n")
+        cfg, _ = load_config(root)
+        prompt = (f"No first prompt could be prepared. Read {cfg['state_file']} (section "
+                  f"'{cfg['first_action_section']}') and {', '.join(cfg['read_first'])} before acting.\n")
     token = None
     if snap:
         token = new_token()

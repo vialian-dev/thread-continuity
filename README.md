@@ -54,6 +54,26 @@ assigned a runner by release time, so macOS is not yet verified.
 5. Add `.continuity/` to `.gitignore`. Commit and push.
 6. Check: `python tools/continuity/relocate.py` should print `RESULT: ready for compaction`.
 
+## Using your own file names
+
+Projects that already keep a state and decisions log under other names map them in `continuity.json` at the project
+root (all keys optional; unknown keys and wrong types are reported, never silently ignored):
+
+```json
+{
+  "truth_files": ["docs/MVP.md", "docs/RESHENIYA.md", "docs/PROGRESS.md"],
+  "state_file": "docs/MVP.md",
+  "decisions_file": "docs/RESHENIYA.md",
+  "goal_section": "CURRENT GOAL",
+  "first_action_section": "FIRST ACTION",
+  "date_formats": ["%d.%m"],
+  "read_first": ["compaction_onboarding.md", "docs/MVP.md"]
+}
+```
+
+Sections are matched by the start of the heading text at any heading level, and end at the next heading of the same
+or a higher level. The first line of the first-action section must contain today's date in one of `date_formats`.
+
 ## What the output looks like
 
 Ready:
