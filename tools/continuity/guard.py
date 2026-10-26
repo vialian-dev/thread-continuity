@@ -4,8 +4,9 @@
 Claude Code adds a UserPromptSubmit hook's stdout to the model's context and passes session_id and transcript_path
 on stdin (https://code.claude.com/docs/en/hooks#userpromptsubmit).
 
-  A  first prompt after compaction: "ok" (acknowledged or no compaction), "FIX FIRST" (pending for this session),
-     "?" (cannot tell: no session id, unreadable state, or a compaction with no first-prompt record)
+  A  first prompt after compaction: "ok" (acknowledged or no compaction in the transcript), "FIX FIRST" (pending for
+     this session), "wait" (session registered by session_start.py in the last 10 minutes, transcript not there yet),
+     "?" (cannot tell: no session id, unreadable state, no transcript, or a compaction with no first-prompt record)
   D  user messages recorded verbatim in docs/DECISIONS.md (rules in decisions.py): ok / nothing to check / FIX / ?
   S  secret-like values in docs/*.md: shown only when found
 Every check that cannot be measured prints "?" with the reason.
@@ -59,11 +60,10 @@ def check_ack(root, session_id, transcript, now):
         return ("A FIX FIRST: first prompt after compaction not acknowledged; read it, then run "
                 "python tools/continuity/ack.py <token from the prompt>")
     if not (transcript and Path(str(transcript)).is_file()):
+        # Without the transcript a compaction cannot be ruled out: never "ok" here.
         if fresh_start(rec, now):
-            return "A ok (new session registered at start; no compaction yet)"
-        if rec is None:
-            return "A ? (transcript unavailable and no session record: cannot rule out an unacknowledged compaction)"
-        return "A ok"
+            return "A wait (session registered at start; transcript expected)"
+        return "A ? (transcript unavailable: cannot rule out an unacknowledged compaction)"
     try:
         compacted = decisions.last_compaction(transcript, now - dt.timedelta(hours=decisions.WINDOW_H))
     except OSError:
@@ -82,7 +82,7 @@ def check_decisions(root, session_id, transcript, now):
         return f"D FIX: {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md{note}"
     if r["status"] == "unknown":
         if r.get("file_missing") and session_id and fresh_start(load_record(root, session_id)[0], now):
-            return "D nothing to check (new session; transcript not written yet)"
+            return "D wait (session registered at start; transcript expected)"
         return f"D ? ({r['reason']})"
     if r["status"] == "nothing":
         return f"D nothing to check (no user messages in the last {decisions.WINDOW_H} h)"

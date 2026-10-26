@@ -81,7 +81,8 @@ CONTINUITY GUARD 2026-10-26 13:12Z: A FIX FIRST: first prompt after compaction n
 CONTINUITY GUARD 2026-10-26 13:15Z: A ? (no session id in hook input; 0 pending in project) | D ? (1 transcript line(s) unreadable)
 ```
 
-`?` means "could not check", with the reason. It is never folded into `ok`.
+`?` means "could not check", with the reason; `wait` means "a newly registered session, transcript expected".
+Neither is ever folded into `ok`.
 
 ## Rules the checks use
 
@@ -114,8 +115,8 @@ CONTINUITY GUARD 2026-10-26 13:15Z: A ? (no session id in hook input; 0 pending 
   each restore gets its own token, so one acknowledgement changes one record.
 - The transcript can lag behind the conversation (Claude Code writes it asynchronously). A message typed
   just before compaction may not be in the file yet when the PreCompact check reads it, and then it is not
-  counted. An unterminated last line is ignored for the same reason. A missing transcript is reported as `?`,
-  except during the first minutes of a session registered by `session_start.py`.
+  counted. An unterminated last line is ignored for the same reason. A missing transcript is never reported as `ok`:
+  it is `wait` during the first 10 minutes of a session registered by `session_start.py`, and `?` otherwise.
 - Nothing in the protocol requires a human review. Automated: the checks, the snapshot, inserting the first prompt,
   the guard line. The assistant: keeping the files and acknowledging the prompt. The human: making the decisions
   and seeing the guard line. Whether the restored thread actually does the first action is not checked; in our

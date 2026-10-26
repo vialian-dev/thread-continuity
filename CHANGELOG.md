@@ -2,6 +2,11 @@
 
 ## 0.2.0 (2026-10-26)
 
+Fix from the fourth review:
+
+- An unavailable transcript never gives `ok` or `nothing to check`: `wait` for a session registered in the last
+  10 minutes, `?` otherwise, also for a registered or acknowledged session whose transcript disappeared.
+
 Fix from the third review:
 
 - A missing transcript no longer means "new session": a new session is registered by the `SessionStart(startup|clear)`

@@ -78,7 +78,14 @@ def transcript(path, messages, extra_lines=()):
 
 
 def guard(root, **hook):
+    """Run the guard. Unless transcript_path is given (None = omit it), an empty transcript without compaction is used."""
     hook.setdefault("cwd", str(root))
+    if "transcript_path" not in hook:
+        empty = root.parent / "empty-transcript.jsonl"
+        empty.write_text("", encoding="utf-8")
+        hook["transcript_path"] = str(empty)
+    elif hook["transcript_path"] is None:
+        del hook["transcript_path"]
     return run("guard.py", root, stdin=json.dumps(hook)).stdout
 
 
@@ -328,7 +335,7 @@ def test_fresh_unrecorded_message_blocks_readiness_before_compaction(ready, tmp_
 
 def test_no_record_and_no_transcript_is_unknown(ready, tmp_path):
     """Review 2, R2-5: session id present, no record, no transcript -> A ok."""
-    assert "A ? (transcript unavailable and no session record" in guard(ready, session_id="S9")
+    assert "A ? (transcript unavailable" in guard(ready, session_id="S9", transcript_path=None)
     t = transcript(tmp_path / "s.jsonl", [])
     assert "A ok" in guard(ready, session_id="S9", transcript_path=str(t))  # transcript shows no compaction
     (ready / ".continuity" / "sessions").mkdir(parents=True)
@@ -410,8 +417,8 @@ def test_first_message_of_new_session_is_not_unknown(ready, tmp_path):
     missing = tmp_path / "not-yet-written.jsonl"
     run("session_start.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "NEW", "source": "startup"}))
     out = guard(ready, session_id="NEW", transcript_path=str(missing))
-    assert "A ok (new session registered at start" in out
-    assert "D nothing to check (new session; transcript not written yet)" in out
+    assert "A wait (session registered at start; transcript expected)" in out
+    assert "D wait (session registered at start; transcript expected)" in out
     r = run("relocate.py", ready, args=["--transcript", str(missing)])
     assert r.returncode == 1 and "could not check decisions: transcript file not available" in r.stdout
 
@@ -426,7 +433,7 @@ def test_missing_transcript_does_not_reclassify_existing_session_as_new(ready, t
     assert "A ? (compaction at" in before and "D FIX: 1" in before
     t.unlink()
     after = guard(ready, session_id="OLD", transcript_path=str(t))
-    assert "A ? (transcript unavailable and no session record" in after
+    assert "A ? (transcript unavailable" in after
     assert "D ? (transcript file not available)" in after
 
 
@@ -435,3 +442,37 @@ def test_session_start_does_not_overwrite_a_pending_record(ready):
     restore(ready, "S1")
     run("session_start.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "S1", "source": "clear"}))
     assert "A FIX FIRST" in guard(ready, session_id="S1")
+
+
+def registered(root, session, minutes_ago):
+    d = root / ".continuity" / "sessions"
+    d.mkdir(parents=True, exist_ok=True)
+    started = (dt.datetime.now(UTC) - dt.timedelta(minutes=minutes_ago)).isoformat()
+    (d / f"{session}.json").write_text(json.dumps({"pending": False, "started": started, "source": "startup"}),
+                                       encoding="utf-8")
+
+
+@pytest.mark.parametrize("minutes_ago, a_line, d_line", [
+    (5, "A wait (session registered at start", "D wait (session registered at start"),
+    (11, "A ? (transcript unavailable", "D ? (transcript file not available)"),
+])
+def test_registered_session_with_vanished_transcript_is_never_ok(ready, tmp_path, minutes_ago, a_line, d_line):
+    """Review 4: registered 5 min ago, transcript with a compaction and an unrecorded message, then deleted ->
+    A ok / D nothing (and A ok / D ? after 11 min)."""
+    registered(ready, "R", minutes_ago)
+    boundary = json.dumps({"type": "system", "subtype": "compact_boundary",
+                           "timestamp": (dt.datetime.now(UTC) - dt.timedelta(minutes=2)).isoformat()})
+    t = transcript(tmp_path / "s.jsonl", [(3, "Unrecorded instruction given in this session")], extra_lines=[boundary])
+    before = guard(ready, session_id="R", transcript_path=str(t))
+    assert "A ? (compaction at" in before and "D FIX: 1" in before
+    t.unlink()
+    after = guard(ready, session_id="R", transcript_path=str(t))
+    assert a_line in after and d_line in after
+    assert "A ok" not in after and "D nothing" not in after
+
+
+def test_acknowledged_session_with_vanished_transcript_is_unknown(ready):
+    precompact(ready, "S1")
+    run("ack.py", ready, args=[restore(ready, "S1")])
+    assert "A ok" in guard(ready, session_id="S1")
+    assert "A ? (transcript unavailable" in guard(ready, session_id="S1", transcript_path=None)
