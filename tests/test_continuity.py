@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -152,7 +153,8 @@ def test_precompact_snapshot_then_fresh_first_prompt(ready, tmp_path):
     ctx = json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "WARNINGS" not in ctx
     assert "run the test suite and fix the first failure" in ctx
-    assert f"ack.py {snap['id']}" in ctx
+    assert f"Snapshot {snap['id']}" in ctx
+    assert re.search(r"ack\.py [0-9a-f]{8}\n", ctx)
 
 
 def test_stale_snapshot_is_rebuilt_not_presented(ready):
@@ -186,34 +188,57 @@ def test_manual_compact_blocked_only_when_asked(project):
 
 # ---------- acknowledgement: per session, bound to the snapshot ----------
 
-def compact(root, session):
+def precompact(root, session):
     run("snapshot.py", root, stdin=json.dumps({"cwd": str(root), "trigger": "auto", "session_id": session}))
+
+
+def restore(root, session):
+    """SessionStart(compact) for one session; returns the acknowledgement token printed in its prompt."""
     out = run("first_prompt.py", root, stdin=json.dumps({"cwd": str(root), "session_id": session})).stdout
-    return json.loads((root / ".continuity" / "snapshot.json").read_text(encoding="utf-8"))["id"], out
+    ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+    return re.search(r"ack\.py ([0-9a-f]{8})\n", ctx).group(1)
 
 
-def test_ack_requires_the_snapshot_id(ready):
-    snap_id, _ = compact(ready, "S1")
+def test_ack_requires_the_token(ready):
+    precompact(ready, "S1")
+    token = restore(ready, "S1")
     assert "A FIX FIRST" in guard(ready, session_id="S1")
     assert run("ack.py", ready).returncode == 2
     bad = run("ack.py", ready, args=["deadbeef"])
     assert bad.returncode == 1 and "does not match" in bad.stdout
+    snap_id = json.loads((ready / ".continuity" / "snapshot.json").read_text(encoding="utf-8"))["id"]
+    assert run("ack.py", ready, args=[snap_id]).returncode == 1  # the snapshot id is not the token
     assert "A FIX FIRST" in guard(ready, session_id="S1")
-    assert run("ack.py", ready, args=[snap_id]).returncode == 0
+    assert run("ack.py", ready, args=[token]).returncode == 0
     assert "A ok" in guard(ready, session_id="S1")
 
 
 def test_sessions_do_not_acknowledge_for_each_other(ready):
-    """Review defect 5: session A's ack cleared session B's flag."""
-    id_a, _ = compact(ready, "A")
+    """Review defect 5: session A's ack cleared session B's flag (sequential compactions)."""
+    precompact(ready, "A")
+    token_a = restore(ready, "A")
     record(ready, "- change between compactions")
     commit_all(ready)
     git(ready, "push", "-q")
-    id_b, _ = compact(ready, "B")
-    assert id_a != id_b
-    run("ack.py", ready, args=[id_a])
+    precompact(ready, "B")
+    restore(ready, "B")
+    run("ack.py", ready, args=[token_a])
     assert "A ok" in guard(ready, session_id="A")
     assert "A FIX FIRST" in guard(ready, session_id="B")
+
+
+def test_overlapping_compactions_from_one_snapshot_stay_separate(ready):
+    """Review 2, R2-2: PreCompact(A), PreCompact(B), SessionStart(A), SessionStart(B), ack(A) cleared B too."""
+    precompact(ready, "A")
+    precompact(ready, "B")
+    token_a = restore(ready, "A")
+    token_b = restore(ready, "B")
+    assert token_a != token_b
+    assert run("ack.py", ready, args=[token_a]).returncode == 0
+    assert "A ok" in guard(ready, session_id="A")
+    assert "A FIX FIRST" in guard(ready, session_id="B")
+    assert run("ack.py", ready, args=[token_b]).returncode == 0
+    assert "A ok" in guard(ready, session_id="B")
 
 
 def test_unwritable_state_is_not_reported_as_ok(ready, tmp_path):
@@ -263,7 +288,52 @@ def test_unreadable_transcript_lines_are_unknown(ready, tmp_path):
     """Review defect 2: a transcript of invalid JSON gave D ok."""
     t = tmp_path / "bad.jsonl"
     t.write_text("{not json\n{also not json\n", encoding="utf-8")
+    assert "D ? (2 transcript line(s) unreadable)" in guard(ready, session_id="S", transcript_path=str(t))
+
+
+def test_completed_broken_last_line_counts_unterminated_tail_does_not(ready, tmp_path):
+    """Review 2, R2-4: a newline-terminated broken last line was ignored -> D ok."""
+    msg = "A properly recorded instruction for the team"
+    record(ready, f"- 10:00Z, user verbatim: «{msg}»")
+    t = transcript(tmp_path / "s.jsonl", [(30, msg)], extra_lines=['{"type":"user", broken}'])
     assert "D ? (1 transcript line(s) unreadable)" in guard(ready, session_id="S", transcript_path=str(t))
+    t.write_text(t.read_text(encoding="utf-8").rstrip("\n"), encoding="utf-8")  # now an unterminated tail
+    assert "D ok (1 checked)" in guard(ready, session_id="S", transcript_path=str(t))
+
+
+def test_repeated_short_answer_is_checked_each_time(ready, tmp_path):
+    """Review 2, R2-3: two 'yes' at different times collapsed into one; the second was never checked."""
+    t = transcript(tmp_path / "s.jsonl", [(90, "yes"), (30, "yes")])
+    first = (dt.datetime.now(UTC) - dt.timedelta(minutes=90)).strftime("%H:%M")
+    record(ready, f"- {today()} {first}Z, user verbatim: «yes»")
+    assert "D FIX: 1 user message(s)" in guard(ready, session_id="S", transcript_path=str(t))
+    second = (dt.datetime.now(UTC) - dt.timedelta(minutes=30)).strftime("%H:%M")
+    record(ready, f"- {today()} {second}Z, user verbatim: «yes»")
+    assert "D ok (2 checked)" in guard(ready, session_id="S", transcript_path=str(t))
+
+
+def test_fresh_unrecorded_message_blocks_readiness_before_compaction(ready, tmp_path):
+    """Review 2, R2-1: a 60-second-old unrecorded message gave READY and a snapshot with no problems."""
+    t = transcript(tmp_path / "s.jsonl", [(1, "DO NOT deploy to production until the owner approves.")])
+    assert "record the new user message now" in guard(ready, session_id="S", transcript_path=str(t))
+    r = run("relocate.py", ready, args=["--transcript", str(t)])
+    assert r.returncode == 1 and "1 user message(s) not recorded" in r.stdout
+    run("snapshot.py", ready, stdin=json.dumps({"cwd": str(ready), "trigger": "auto", "session_id": "S",
+                                                 "transcript_path": str(t)}))
+    snap = json.loads((ready / ".continuity" / "snapshot.json").read_text(encoding="utf-8"))
+    assert any("not recorded verbatim" in p for p in snap["problems"])
+    ctx = json.loads(run("first_prompt.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "S"})).stdout)
+    assert "not recorded verbatim" in ctx["hookSpecificOutput"]["additionalContext"]
+
+
+def test_no_record_and_no_transcript_is_unknown(ready, tmp_path):
+    """Review 2, R2-5: session id present, no record, no transcript -> A ok."""
+    assert "A ? (no session record and no transcript" in guard(ready, session_id="S9")
+    t = transcript(tmp_path / "s.jsonl", [])
+    assert "A ok" in guard(ready, session_id="S9", transcript_path=str(t))  # transcript shows no compaction
+    (ready / ".continuity" / "sessions").mkdir(parents=True)
+    (ready / ".continuity" / "sessions" / "S9.json").write_text("[]", encoding="utf-8")
+    assert "A ? (session record malformed)" in guard(ready, session_id="S9", transcript_path=str(t))
 
 
 def test_empty_window_says_nothing_to_check(ready, tmp_path):

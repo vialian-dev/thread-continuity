@@ -22,7 +22,7 @@ before compact  snapshot.py (PreCompact hook, manual and auto) or relocate.py (b
                 checks the files and git, fingerprints STATE.md + DECISIONS.md + git head
 after compact   first_prompt.py (SessionStart hook): inserts the first prompt into the same thread;
                 if the files changed since the snapshot, rebuilds it from the current files and says so
-first turn      the thread reads it and runs ack.py <snapshot id>; the id appears only in the prompt
+first turn      the thread reads it and runs ack.py <token>; a fresh token per session and restore
 every message   guard.py (UserPromptSubmit hook): one advisory line: ok / FIX / ?
 ```
 
@@ -33,13 +33,14 @@ every message   guard.py (UserPromptSubmit hook): one advisory line: ok / FIX / 
 | `tools/continuity/snapshot.py` | `PreCompact` hook. Runs the readiness and decisions checks, writes the snapshot to `.continuity/` with any problems found. Never blocks automatic compaction; can block a manual `/compact` when `CONTINUITY_BLOCK_MANUAL=1`. |
 | `tools/continuity/relocate.py` | The same checks by hand, with a READY / NOT READY verdict and the list of what was checked. |
 | `tools/continuity/first_prompt.py` | `SessionStart(compact)` hook. Inserts the first prompt; refuses to present a stale snapshot as current. |
-| `tools/continuity/ack.py` | `ack.py <snapshot id>`: the thread confirms it saw the first prompt. Per session. |
+| `tools/continuity/ack.py` | `ack.py <token>`: the thread presents the token from its first prompt; changes exactly one session record. |
 | `tools/continuity/guard.py` | `UserPromptSubmit` hook. Advisory line: first prompt acknowledged (A), user messages recorded (D), secret-like values in docs (S). |
 | `templates/docs/*.md` | The files the thread keeps: `STATE.md` (goal and first action), `DECISIONS.md`, `PROGRESS.md`, `BACKLOG.md`, `LESSONS.md`. |
 | `templates/CLAUDE.continuity.md` | The protocol as instructions for the assistant; append to your `CLAUDE.md`. |
 | `.claude/settings.example.json` | Hook configuration. |
 
-Python 3.9+, standard library only. CI runs the tests on Linux, Windows and macOS with Python 3.9 and 3.13.
+Python 3.9+, standard library only. The CI workflow is configured to run the tests on Linux, Windows and macOS with
+Python 3.9 and 3.13.
 
 ## Installation
 
@@ -87,12 +88,17 @@ CONTINUITY GUARD 2026-10-26 13:15Z: A ? (no session id in hook input; 0 pending 
   shorter than 20 characters ("yes") must also share an entry with their own UTC time `HH:MM`. Secret-like values
   are compared as `[REDACTED]`, so a properly redacted record still counts.
 - **Window**: only the last 36 hours of the transcript are checked, so an old gap does not block every future turn.
-  Messages younger than 180 seconds are reported as "record now", not as gaps, because the assistant has not yet had
-  a turn to write them.
+  On a user message, messages younger than 180 seconds are reported as "record now", not as gaps, because the
+  assistant has not yet had a turn to write them. Before compaction there is no grace period: every unrecorded
+  message is a problem, recorded in the snapshot and shown in the first prompt.
+- **Repeats**: the same text at different times counts as separate messages; each is checked.
+- **Unreadable lines**: a broken, newline-terminated line gives `?`; only an unterminated last line (still being
+  written) is ignored.
 - **Skipped**: tool results, `isMeta` entries, the compaction summary, and Claude Code wrappers such as
   `<command-name>` or `<system-reminder>`. Any other text, including text that starts with `<`, is checked.
-- **Ready**: truth files exist and are filled in, the first action starts with today's date, git is clean, the
-  branch has an upstream and nothing is unpushed.
+- **Ready**: the truth files exist and are not empty; the `Current goal` and `First action` sections of `STATE.md`
+  contain no template placeholders (other files are not checked for placeholders); the first action starts with
+  today's date; git is clean; the branch has an upstream and nothing is unpushed.
 - **Fresh snapshot**: git head and the hashes of `STATE.md` and `DECISIONS.md` equal the ones recorded at snapshot
   time.
 
@@ -100,10 +106,11 @@ CONTINUITY GUARD 2026-10-26 13:15Z: A ? (no session id in hook input; 0 pending 
 
 - The guard is **advisory**. It prints a line into the context; it does not block work. Acting on it is the
   assistant's job, which is why the protocol tells it to fix `FIX` and `?` first.
-- Checks are structural. READY says the files are present, filled in and pushed; it cannot tell whether the goal
+- Checks are structural. READY says the files are present, the key sections are filled in, and git is pushed; it cannot tell whether the goal
   or the next step is *right*. "Recorded verbatim" is a text-match heuristic, not proof that the meaning was kept.
-- `ack.py` proves the first prompt was **seen** (its id appears nowhere else), not that it was understood.
-  Two sessions compacted from the same snapshot share an id; acknowledging in one acknowledges both.
+- `ack.py` proves the **token was presented**, not that the prompt was read or understood. The token is printed
+  in the first prompt and also stored in that session's record under `.continuity/sessions/`. Each session and
+  each restore gets its own token, so one acknowledgement changes one record.
 - The transcript format (`*.jsonl`, `compact_boundary` entries) is what Claude Code writes today; it is not a
   documented API and may change. The guard then reports `?` rather than `ok`.
 - Secret detection catches common token formats (OpenAI/Anthropic-style `sk-`, GitHub, Slack, AWS keys, private

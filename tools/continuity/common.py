@@ -3,6 +3,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import secrets
 import re
 import subprocess
 import sys
@@ -101,7 +102,8 @@ def snapshot_id(fp, created):
 
 
 def build_prompt(root, snap_id, problems):
-    """First prompt text from the current STATE.md, naming the snapshot id the thread must acknowledge."""
+    """First prompt text from the current STATE.md. The per-session acknowledgement line is appended by
+    first_prompt.py, because one snapshot can be restored into several sessions."""
     state, _ = read_text(Path(root) / "docs/STATE.md")
     first = section(state, "First action") or "(no first action recorded)"
     goal = section(state, "Current goal") or "(no current goal recorded)"
@@ -121,7 +123,7 @@ Snapshot {snap_id}, written {stamp()}, git head: {head}
 
 ## Before acting
 1. Read docs/STATE.md, the newest entries of docs/DECISIONS.md, and docs/PROGRESS.md.
-2. Run: python tools/continuity/ack.py {snap_id}
+2. Run the acknowledgement command at the end of this prompt.
 3. Do not retell the old conversation and do not search for it: what is needed is in the files above.
 """
 
@@ -143,3 +145,8 @@ def write_snapshot(root, problems, trigger, session_id=None):
     (d / PROMPT).write_text(build_prompt(root, snap["id"], problems), encoding="utf-8")
     (d / SNAPSHOT).write_text(json.dumps(snap, indent=2), encoding="utf-8")
     return snap
+
+
+def new_token():
+    """Acknowledgement token: one per session and per restore."""
+    return secrets.token_hex(4)

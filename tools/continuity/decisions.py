@@ -103,24 +103,25 @@ def window_lines(transcript, since):
 def user_messages(transcript, since):
     """(messages, unreadable): messages are (utc time, text) typed by the user since `since`.
 
-    Streams the file; only lines that can hold a user message are parsed. A broken final line is ignored because
-    Claude Code may still be writing it.
+    Only lines that can hold a user message are parsed. A broken line counts as unreadable, except an unterminated
+    last line (no newline yet), which Claude Code may still be writing. Repeated messages are kept: two "yes" at
+    different times are two messages; only an exact repeat (same time, same text) is dropped.
     """
-    out, seen, unreadable, pending_bad = [], set(), 0, 0
+    out, seen, unreadable = [], set(), 0
     for line in window_lines(transcript, since):
         if not line.strip():
             continue
-        unreadable += pending_bad
-        pending_bad = 0
+        complete = line.endswith("\n")
         if '"user"' not in line and '"attachment"' not in line:
-            if line.lstrip().startswith("{") and line.rstrip().endswith("}"):
-                continue
-            pending_bad = 1  # not a complete JSON object; counted unless it is the last line
+            body = line.strip()
+            if complete and not (body.startswith("{") and body.endswith("}")):
+                unreadable += 1
             continue
         try:
             e = json.loads(line)
         except ValueError:
-            pending_bad = 1
+            if complete:
+                unreadable += 1
             continue
         if not isinstance(e, dict):
             unreadable += 1
@@ -143,8 +144,8 @@ def user_messages(transcript, since):
         if t is None:
             unreadable += 1
             continue
-        if t >= since and own not in seen:
-            seen.add(own)
+        if t >= since and (t, own) not in seen:
+            seen.add((t, own))
             out.append((t, own))
     return out, unreadable
 
@@ -184,8 +185,11 @@ def is_recorded(t, text, log_norm, log_entries):
     return any(n in e and hhmm in e for e in log_entries)
 
 
-def check(root, transcript, now):
-    """dict(status, missing, fresh, checked, unreadable, reason)."""
+def check(root, transcript, now, grace=True):
+    """dict(status, missing, fresh, checked, unreadable, reason).
+
+    grace=False (before compaction): a message not yet recorded is a gap however young it is.
+    """
     res = {"status": "unknown", "missing": 0, "fresh": 0, "checked": 0, "unreadable": 0, "reason": ""}
     if not transcript or not Path(str(transcript)).is_file():
         res["reason"] = "no transcript path in hook input"
@@ -205,7 +209,7 @@ def check(root, transcript, now):
         res["checked"] += 1
         if is_recorded(t, text, log_norm, log_entries):
             continue
-        if (now - t).total_seconds() < FRESH_S:
+        if grace and (now - t).total_seconds() < FRESH_S:
             res["fresh"] += 1
         else:
             res["missing"] += 1

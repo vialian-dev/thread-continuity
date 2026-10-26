@@ -33,18 +33,21 @@ def check_ack(root, session_id, transcript):
         rec = json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
     except (OSError, ValueError, UnicodeDecodeError) as e:
         return f"A ? (session record unreadable: {type(e).__name__})"
-    if isinstance(rec, dict) and rec.get("pending"):
-        return (f"A FIX FIRST: first prompt after compaction not acknowledged; read it, then run "
-                f"python tools/continuity/ack.py <snapshot id from the prompt>")
-    compacted = None
-    if transcript and Path(str(transcript)).is_file():
-        try:
-            compacted = decisions.last_compaction(
-                transcript, utc_now() - dt.timedelta(hours=decisions.WINDOW_H))
-        except OSError:
-            return "A ? (transcript unreadable)"
+    if rec is not None and not (isinstance(rec, dict) and isinstance(rec.get("pending"), bool)):
+        return "A ? (session record malformed)"
+    if rec and rec["pending"]:
+        return ("A FIX FIRST: first prompt after compaction not acknowledged; read it, then run "
+                "python tools/continuity/ack.py <token from the prompt>")
+    if not (transcript and Path(str(transcript)).is_file()):
+        if rec is None:
+            return "A ? (no session record and no transcript: cannot rule out an unacknowledged compaction)"
+        return "A ok"
+    try:
+        compacted = decisions.last_compaction(transcript, utc_now() - dt.timedelta(hours=decisions.WINDOW_H))
+    except OSError:
+        return "A ? (transcript unreadable)"
     if compacted:
-        since = decisions.parse_ts((rec or {}).get("since")) if isinstance(rec, dict) else None
+        since = decisions.parse_ts(rec.get("since")) if rec else None
         if since is None or since < compacted - dt.timedelta(minutes=1):
             return f"A ? (compaction at {stamp(compacted)} but no first-prompt record for this session)"
     return "A ok"

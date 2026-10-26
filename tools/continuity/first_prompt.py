@@ -6,7 +6,8 @@ Claude Code adds hookSpecificOutput.additionalContext to the model's context and
   1. load .continuity/snapshot.json (written by the PreCompact hook or relocate.py);
   2. if it is missing, unreadable or its fingerprint no longer matches git head + STATE.md + DECISIONS.md,
      rebuild the prompt from the current files and say so, instead of presenting a stale plan as current;
-  3. record "first prompt pending" for this session_id with the snapshot id; ack.py clears it only with that id.
+  3. record "first prompt pending" for this session_id with a fresh token printed only in this session's prompt
+     (and in its record); ack.py <token> changes exactly that one record.
 Any failure is reported in both the context and the user-visible message; the session itself is never failed.
 """
 import json
@@ -14,7 +15,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from common import (PROMPT, SNAPSHOT, fingerprint, project_root, read_hook_input, read_text,  # noqa: E402
+from common import (PROMPT, SNAPSHOT, fingerprint, new_token, project_root, read_hook_input, read_text,  # noqa: E402
                     session_file, state_dir, utc_now, write_snapshot)
 
 HEADER = "[thread-continuity: first prompt after compaction, inserted by the SessionStart(compact) hook]\n\n"
@@ -56,14 +57,20 @@ def main():
     if prompt is None:
         prompt = ("No first prompt could be prepared. Read docs/STATE.md ('## First action'), the newest entries of "
                   "docs/DECISIONS.md and docs/PROGRESS.md before acting.\n")
+    token = None
     if snap:
+        token = new_token()
         try:
             f = session_file(root, session_id)
             f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(json.dumps({"pending": True, "snapshot_id": snap["id"], "since": utc_now().isoformat()}),
-                         encoding="utf-8")
+            f.write_text(json.dumps({"pending": True, "token": token, "snapshot_id": snap["id"],
+                                     "since": utc_now().isoformat()}), encoding="utf-8")
         except OSError as e:
-            warnings.append(f"pending flag not saved ({type(e).__name__}); the guard will report '?'")
+            token = None
+            warnings.append(f"pending flag not saved ({type(e).__name__}); acknowledgement will not work, "
+                            "the guard will report '?'")
+    if token:
+        prompt = prompt.rstrip() + f"\n\n## Acknowledge\nRun: python tools/continuity/ack.py {token}\n"
     context = HEADER + prompt
     if warnings:
         context = HEADER + "WARNINGS:\n" + "\n".join(f"- {w}" for w in warnings) + "\n\n" + prompt

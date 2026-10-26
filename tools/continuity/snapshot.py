@@ -24,7 +24,7 @@ def main():
     root = project_root(hook.get("cwd"))
     trigger = hook.get("trigger") if hook.get("trigger") in ("manual", "auto") else "unknown"
     found = readiness.problems(root, os.environ.get("CONTINUITY_NO_REMOTE") == "1")
-    r = decisions.check(root, hook.get("transcript_path"), utc_now())
+    r = decisions.check(root, hook.get("transcript_path"), utc_now(), grace=False)
     if r["status"] == "fix":
         found.append(f"D  {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md")
     elif r["status"] == "unknown":

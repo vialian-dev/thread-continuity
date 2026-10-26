@@ -14,7 +14,7 @@ The conversation is temporary; the files are the memory. Compaction can happen a
    `RESULT: ready for compaction`. Automatic compaction is covered by the PreCompact hook, which takes the snapshot
    itself and carries any problems into the first prompt.
 5. **After compaction** the first prompt is inserted into the same thread. Read it and the files it names, then run
-   `python tools/continuity/ack.py <snapshot id>` with the id printed in the prompt. Start from the first action.
+   `python tools/continuity/ack.py <token>` with the token printed at the end of the prompt. Start from the first action.
    Do not retell or search the old conversation.
 6. **When the guard line says FIX or ?**, deal with it before other work.
 7. **Time comes from the clock** (`date -u`), never from memory.

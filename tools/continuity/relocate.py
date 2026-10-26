@@ -32,7 +32,7 @@ def main(argv=None):
     found = readiness.problems(root, a.no_remote)
     checked = "T S F G" + (" (P skipped: --no-remote)" if a.no_remote else " P")
     if a.transcript:
-        r = decisions.check(root, a.transcript, utc_now())
+        r = decisions.check(root, a.transcript, utc_now(), grace=False)
         checked += " D"
         if r["status"] == "fix":
             found.append(f"D  {r['missing']} user message(s) not recorded verbatim in docs/DECISIONS.md")
