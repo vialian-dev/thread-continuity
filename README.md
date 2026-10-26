@@ -1,3 +1,5 @@
+![Thread Continuity: project memory that survives compaction](docs/banner.webp)
+
 # thread-continuity
 
 **Carry a Claude Code thread's working state across context compaction, and check that it was carried.**
