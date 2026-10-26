@@ -515,3 +515,11 @@ def test_bad_config_is_not_ready(ready, content, reason):
     git(ready, "push", "-q")
     r = run("relocate.py", ready)
     assert r.returncode == 1 and reason in r.stdout
+
+
+def test_comparison_signs_are_not_placeholders(ready):
+    """Found installing 0.3 in a real project: 'quota < 99 %, ... ->' was taken for a <placeholder>."""
+    fill_state(ready, goal="Keep quota < 99 %, then move threads -> COO")
+    commit_all(ready)
+    git(ready, "push", "-q")
+    assert run("relocate.py", ready).returncode == 0

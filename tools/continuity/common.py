@@ -25,7 +25,8 @@ PROMPT = "first_prompt.md"
 SESSIONS = "sessions"
 
 # Template markers left unfilled: "<...>" placeholders and the literal date pattern.
-PLACEHOLDER = re.compile(r"<[^<>\n]{3,}>|YYYY-MM-DD")
+# "<" must be followed directly by a letter, so "quota < 99 %, ... ->" is not taken for a placeholder.
+PLACEHOLDER = re.compile(r"<[^\W\d_][^<>\n]{2,}>|YYYY-MM-DD")
 
 
 def utc_now():
