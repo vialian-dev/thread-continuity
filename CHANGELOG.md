@@ -11,6 +11,8 @@ Fixes from the second review:
 - Repeated messages (two "yes" at different times) are checked separately.
 - A broken, newline-terminated last transcript line gives `?`; only an unterminated tail is ignored.
 - Guard: no session record and no transcript gives `A ?`; a malformed session record gives `A ?`.
+- Found in a live `/compact` run in Claude Code 2.1.309: scripts wrote `__pycache__` into the project (made git
+  "dirty"); the first message of a new session has no transcript file yet (gave `?`). Both fixed with tests.
 - README: corrected wording on the token, CI status, the scope of placeholder checks; template no longer mentions the
   60-character rule.
 

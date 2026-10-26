@@ -403,3 +403,12 @@ def test_tools_inside_the_project_do_not_dirty_git(ready):
                            env=dict(os.environ, CLAUDE_PROJECT_DIR=str(ready)))
         assert r.returncode == 0, r.stdout
     assert not (ready / "tools" / "continuity" / "__pycache__").exists()
+
+
+def test_first_message_of_new_session_is_not_unknown(ready, tmp_path):
+    """Found in the live test: the transcript file does not exist yet on a new session's first message."""
+    missing = tmp_path / "not-yet-written.jsonl"
+    out = guard(ready, session_id="NEW", transcript_path=str(missing))
+    assert "A ok (new session" in out and "D nothing to check (transcript not written yet" in out
+    r = run("relocate.py", ready, args=["--transcript", str(missing)])
+    assert r.returncode == 1 and "could not check decisions: transcript not written yet" in r.stdout

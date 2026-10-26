@@ -191,8 +191,14 @@ def check(root, transcript, now, grace=True):
     grace=False (before compaction): a message not yet recorded is a gap however young it is.
     """
     res = {"status": "unknown", "missing": 0, "fresh": 0, "checked": 0, "unreadable": 0, "reason": ""}
-    if not transcript or not Path(str(transcript)).is_file():
+    if not transcript:
         res["reason"] = "no transcript path in hook input"
+        return res
+    if not Path(str(transcript)).is_file():
+        # The first message of a new session arrives before Claude Code has written the transcript file.
+        res["reason"] = "transcript not written yet (new session)"
+        if grace:
+            res["status"] = "nothing"
         return res
     try:
         log = (Path(root) / "docs/DECISIONS.md").read_text(encoding="utf-8")

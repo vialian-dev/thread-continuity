@@ -39,6 +39,8 @@ def check_ack(root, session_id, transcript):
     if rec and rec["pending"]:
         return ("A FIX FIRST: first prompt after compaction not acknowledged; read it, then run "
                 "python tools/continuity/ack.py <token from the prompt>")
+    if transcript and not Path(str(transcript)).is_file() and rec is None:
+        return "A ok (new session: no transcript yet, so no compaction yet)"
     if not (transcript and Path(str(transcript)).is_file()):
         if rec is None:
             return "A ? (no session record and no transcript: cannot rule out an unacknowledged compaction)"
@@ -62,7 +64,7 @@ def check_decisions(root, transcript, now):
     if r["status"] == "unknown":
         return f"D ? ({r['reason']})"
     if r["status"] == "nothing":
-        return f"D nothing to check (no user messages in the last {decisions.WINDOW_H} h)"
+        return f"D nothing to check ({r['reason'] or f'no user messages in the last {decisions.WINDOW_H} h'})"
     extra = "; record the new user message now" if r["fresh"] else ""
     return f"D ok ({r['checked']} checked){extra}"
 
