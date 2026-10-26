@@ -14,6 +14,7 @@ import json
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # no __pycache__ in the project tree (it would make git "dirty")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import (PROMPT, SNAPSHOT, fingerprint, new_token, project_root, read_hook_input, read_text,  # noqa: E402
                     session_file, state_dir, utc_now, write_snapshot)

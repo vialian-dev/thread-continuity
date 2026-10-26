@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # no __pycache__ in the project tree (it would make git "dirty")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common import SESSIONS, project_root, state_dir, utc_now  # noqa: E402
 

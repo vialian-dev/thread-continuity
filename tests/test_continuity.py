@@ -391,3 +391,15 @@ def test_large_transcript_is_entered_by_seek_and_still_checked(ready, tmp_path):
     r = run("guard.py", ready, stdin=json.dumps({"cwd": str(ready), "session_id": "S", "transcript_path": str(t)}),
             env_extra=env)
     assert "D FIX: 1 user message(s)" in r.stdout
+
+
+def test_tools_inside_the_project_do_not_dirty_git(ready):
+    """Found in the live test: __pycache__ written next to the tools made the next check NOT READY."""
+    shutil.copytree(TOOLS, ready / "tools" / "continuity", ignore=shutil.ignore_patterns("__pycache__"))
+    commit_all(ready)
+    git(ready, "push", "-q")
+    for _ in range(2):
+        r = subprocess.run([sys.executable, "tools/continuity/relocate.py"], cwd=ready, capture_output=True, text=True,
+                           env=dict(os.environ, CLAUDE_PROJECT_DIR=str(ready)))
+        assert r.returncode == 0, r.stdout
+    assert not (ready / "tools" / "continuity" / "__pycache__").exists()
