@@ -49,10 +49,12 @@ def read_hook_input():
 
 def git(root, *args):
     try:
-        r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=20)
+        # git output is UTF-8 (commit subjects in any language); the Windows locale codec would fail on it.
+        r = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=20,
+                           encoding="utf-8", errors="replace")
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return r.stdout.strip() if r.returncode == 0 else None
+    return (r.stdout or "").strip() if r.returncode == 0 else None
 
 
 def project_root(start=None):

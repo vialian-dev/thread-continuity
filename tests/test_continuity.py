@@ -556,3 +556,14 @@ def test_long_pasted_text_can_live_in_an_attachment(ready, tmp_path):
     (ready / "continuity.json").write_text(json.dumps({"decisions_attachments": ["docs/decisions/*.md"]}),
                                            encoding="utf-8")
     assert "D ok (1 checked)" in guard(ready, session_id="S", transcript_path=str(t))
+
+
+def test_non_ascii_commit_subject(ready):
+    """Found in a real project on Windows: a Cyrillic commit subject crashed the snapshot (locale codec)."""
+    record(ready, "- запись")
+    git(ready, "add", "-A")
+    git(ready, "commit", "-qm", "Решения владельца: переезд")
+    git(ready, "push", "-q")
+    r = run("relocate.py", ready)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "Решения владельца: переезд" in (ready / ".continuity" / "first_prompt.md").read_text(encoding="utf-8")
