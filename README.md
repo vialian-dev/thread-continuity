@@ -64,6 +64,7 @@ root (all keys optional; unknown keys and wrong types are reported, never silent
   "truth_files": ["docs/MVP.md", "docs/RESHENIYA.md", "docs/PROGRESS.md"],
   "state_file": "docs/MVP.md",
   "decisions_file": "docs/RESHENIYA.md",
+  "decisions_attachments": ["docs/decisions/*.md"],
   "goal_section": "CURRENT GOAL",
   "first_action_section": "FIRST ACTION",
   "date_formats": ["%d.%m"],

@@ -523,3 +523,36 @@ def test_comparison_signs_are_not_placeholders(ready):
     commit_all(ready)
     git(ready, "push", "-q")
     assert run("relocate.py", ready).returncode == 0
+
+
+def test_compaction_summary_slash_command_and_oauth_code(ready, tmp_path):
+    """Found installing 0.3 in a real project: the compaction summary (isCompactSummary, starting with a harness tag),
+    a bare '/compact' and a pasted OAuth code were reported as unrecorded user messages."""
+    now = dt.datetime.now(UTC)
+    ts = (now - dt.timedelta(minutes=30)).isoformat()
+    code = "RGuaLLUwkT2kaUv5kHn149lyAXR2pntPPbFN6B0GvtATrc3S#Hx_1o9_EjQ1KSFhiPSDbd8pCCd5XM"
+    lines = [
+        json.dumps({"type": "user", "isCompactSummary": True, "timestamp": ts,
+                    "message": {"content": "<artifact-content-authored-by-others/>\nThe summarized conversation ..."}}),
+        json.dumps({"type": "user", "timestamp": ts, "message": {"content": "/compact"}}),
+        json.dumps({"type": "user", "timestamp": ts, "message": {"content": code}}),
+    ]
+    t = tmp_path / "s.jsonl"
+    t.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert "D FIX: 1 user message(s)" in guard(ready, session_id="S", transcript_path=str(t))  # only the code
+    hhmm = (now - dt.timedelta(minutes=30)).strftime("%H:%M")
+    record(ready, f"- {today()} {hhmm}Z, user pasted a one-time code: «[REDACTED]»")
+    out = guard(ready, session_id="S", transcript_path=str(t))
+    assert "D ok (1 checked)" in out and "S WARN" not in out
+
+
+def test_long_pasted_text_can_live_in_an_attachment(ready, tmp_path):
+    long_text = "Review round 2. " + "A detailed finding with reproduction steps. " * 40
+    t = transcript(tmp_path / "s.jsonl", [(30, long_text)])
+    record(ready, "- 10:00Z, user pasted review round 2 (full text: docs/decisions/2026-10-26_1330Z.md)")
+    assert "D FIX: 1" in guard(ready, session_id="S", transcript_path=str(t))
+    (ready / "docs" / "decisions").mkdir()
+    (ready / "docs" / "decisions" / "2026-10-26_1330Z.md").write_text(long_text, encoding="utf-8")
+    (ready / "continuity.json").write_text(json.dumps({"decisions_attachments": ["docs/decisions/*.md"]}),
+                                           encoding="utf-8")
+    assert "D ok (1 checked)" in guard(ready, session_id="S", transcript_path=str(t))

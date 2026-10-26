@@ -14,6 +14,7 @@ DEFAULTS = {
     "truth_files": ["docs/STATE.md", "docs/DECISIONS.md", "docs/PROGRESS.md", "docs/BACKLOG.md", "docs/LESSONS.md"],
     "state_file": "docs/STATE.md",
     "decisions_file": "docs/DECISIONS.md",
+    "decisions_attachments": [],
     "goal_section": "Current goal",
     "first_action_section": "First action",
     "date_formats": ["%Y-%m-%d"],

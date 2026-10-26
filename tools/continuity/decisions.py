@@ -30,7 +30,9 @@ PASTED = re.compile(r"<pasted_content[^>]*>.*?</pasted_content[^>]*>", re.S)
 SECRET = re.compile(
     r"sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}"
     r"|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
+    r"|(?<!\S)[A-Za-z0-9_-]{30,}#[A-Za-z0-9_-]{10,}(?!\S)"  # OAuth authorization code with state (code#state)
 )
+SLASH_COMMAND = re.compile(r"/[A-Za-z][\w:-]*")
 
 
 def norm(text):
@@ -38,8 +40,10 @@ def norm(text):
 
 
 def is_wrapper(text):
-    t = text.lstrip()
-    return t.startswith(COMPACTION_SUMMARY) or any(t.startswith("<" + w) for w in WRAPPERS)
+    """Text Claude Code produced, not the user: wrappers, the compaction summary, a bare slash command."""
+    t = text.strip()
+    return (t.startswith(COMPACTION_SUMMARY) or any(t.startswith("<" + w) for w in WRAPPERS)
+            or bool(SLASH_COMMAND.fullmatch(t)))
 
 
 def parse_ts(value):
@@ -131,7 +135,8 @@ def user_messages(transcript, since):
             if not isinstance(a, dict) or (a.get("origin") or {}).get("kind") != "human":
                 continue
             text = text_of(a.get("prompt"))
-        elif e.get("type") == "user" and not e.get("isMeta") and e.get("toolUseResult") is None:
+        elif (e.get("type") == "user" and not e.get("isMeta") and not e.get("isCompactSummary")
+              and e.get("toolUseResult") is None):
             text = text_of((e.get("message") or {}).get("content"))
         else:
             continue
@@ -200,12 +205,17 @@ def check(root, transcript, now, grace=True):
         res["file_missing"] = True
         return res
     from common import load_config
-    name = load_config(root)[0]["decisions_file"]
+    cfg = load_config(root)[0]
+    name = cfg["decisions_file"]
     res["file"] = name
     try:
         log = (Path(root) / name).read_text(encoding="utf-8")
+        # Long pasted texts may live in attachment files named by decisions_attachments (globs); they count too.
+        for pattern in cfg["decisions_attachments"]:
+            for extra in sorted(Path(root).glob(pattern)):
+                log += "\n\n" + extra.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:
-        res["reason"] = f"{name} not readable ({type(e).__name__})"
+        res["reason"] = f"{name} or an attachment not readable ({type(e).__name__})"
         return res
     try:
         msgs, res["unreadable"] = user_messages(transcript, now - dt.timedelta(hours=WINDOW_H))

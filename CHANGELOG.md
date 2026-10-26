@@ -5,6 +5,10 @@
 - `continuity.json`: map your own truth files, state and decisions files, section headings, date formats and the
   reading list of the first prompt. Invalid configuration is a readiness problem (`C`), not a silent fallback.
 - Sections match any heading level by the start of the heading text.
+- Found installing in a real project (a long-lived thread): the compaction summary entry (`isCompactSummary`), a bare
+  slash command such as `/compact`, and a pasted OAuth `code#state` were reported as unrecorded user messages; now
+  skipped or matched as `[REDACTED]`.
+- `decisions_attachments` (globs): long pasted texts can be kept in separate files and still count as recorded.
 - A template placeholder must start with a letter after `<`; comparisons such as `< 99 %` are no longer flagged.
 
 ## 0.2.0 (2026-10-26)
